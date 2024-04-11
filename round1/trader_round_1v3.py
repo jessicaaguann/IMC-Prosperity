@@ -24,13 +24,40 @@ class Trader:
             print("Buy Orders:", order_depth.buy_orders)
             print("Sell Orders:", order_depth.sell_orders)
 
+            best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
+            best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
+            buy_amount = 0
+            sell_amount = 0
+
             if product == "AMETHYSTS":
                 if product in state.position:
                     position = state.position["AMETHYSTS"]
                 else:
                     position = 0
                 
-                pos_limit = 20
+                margin = 2
+                buy_price = 10000 - margin
+                sell_price = 10000 + margin
+                
+                if best_ask <= 10000:
+                    buy_amount = self.get_amount_to_buy(order_depth=order_depth, position=state.position, product=product)
+
+                    if buy_amount < 0:
+                        buy_amount *= -1
+                    
+                    print("BUY:", str(buy_amount) + "x", best_ask)
+                    orders.append(Order(product, best_ask, buy_amount))
+
+                if best_bid >= 10000:
+                    sell_amount = self.get_amount_to_sell(order_depth=order_depth, position=state.position, product=product)
+
+                    if sell_amount > 0:
+                        sell_amount *= -1
+                    
+                    print("SELL:", str(sell_amount) + "x", best_bid)
+                    orders.append(Order(product, best_bid, sell_amount))
+                
+                pos_limit = 20 - buy_amount
                 buy_dif = pos_limit-position
 
                 mid_price = self.get_midprice(order_depth=order_depth) # gives order_depth for specific product
@@ -39,15 +66,11 @@ class Trader:
                 if len(records[product]) > 100: # to not store that much data inside record
                     records[product].pop(0) # pop the oldest
 
-                buy_price = 10000 - 2
-
                 print("BUY", str(buy_dif) + "x", buy_price)
                 orders.append(Order(product, buy_price, buy_dif))
 
-                neg_limit = -20
+                neg_limit = -20 - sell_amount
                 sell_dif = neg_limit-position
-    
-                sell_price = 10000 + 2
 
                 print("SELL", str(sell_dif) + "x", sell_price)
                 orders.append(Order(product, sell_price, sell_dif))
@@ -61,7 +84,7 @@ class Trader:
                 moving_average = self.get_moving_average(records[product], small_window_size)
                 ema = self.get_ema(records[product], large_window_size)
                 moving_std = self.get_std(records[product])
-                scaler = 1.82
+                scaler = 1.31
                 upper_limit = moving_average + scaler * moving_std
                 lower_limit = moving_average - scaler * moving_std
                 slopepercent = self.get_slope_of_ma(records[product], small_window_size, 4) # percent increase relative to 0 slope
@@ -80,12 +103,8 @@ class Trader:
 
                 print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", Sell order depth : " + str(len(order_depth.sell_orders)))
 
-                best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
-                best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
                 flag = False
 
-                buy_amount = 0
-                sell_amount = 0
                 if(best_ask < lower_limit): # lower band
                     buy_amount = self.get_amount_to_buy(order_depth=order_depth, position=state.position, product=product)
 
@@ -110,7 +129,7 @@ class Trader:
                 if flag == False:
 
                     print("Slope percent", slopepercent)
-                    fv_adjustment = slopepercent * 3.5
+                    fv_adjustment = slopepercent * 3.9
                     margin = 3
 
                     if len(records[product]) > 100: # to not store that much data inside record
@@ -122,14 +141,14 @@ class Trader:
                     else:
                         position = 0 + buy_amount + sell_amount
                     
-                    pos_limit = 16
+                    pos_limit = 17
                     buy_dif = int(round((pos_limit-position)/ (1 + abs(slopepercent) * 4.5)))
                     buy_price = int(round(moving_average + fv_adjustment)) - margin
 
                     print("BUY", str(buy_dif) + "x", buy_price)
                     orders.append(Order(product, buy_price, buy_dif))
 
-                    neg_limit = -16
+                    neg_limit = -17
                     sell_dif = int(round((neg_limit-position)/ (1 + abs(slopepercent) * 4.5)))
         
                     sell_price = int(round(moving_average  + fv_adjustment)) + margin
