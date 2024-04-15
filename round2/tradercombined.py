@@ -15,7 +15,7 @@ class Trader:
         if len(state.traderData) == 0:
             # first list is to save mid_price for AMETHYSTS
             # second list is to save mid_price for STARFRUITS 
-            records = {"AMETHYSTS": [], "STARFRUIT": [], "ORCHIDSPNL": [0]}
+            records = {"AMETHYSTS": [], "STARFRUIT": [], "ORCHIDSLMID": [], "ORCHIDSFMID": []}
         else:
             records = jsonpickle.decode(state.traderData)
         
@@ -31,13 +31,12 @@ class Trader:
             if product == "ORCHIDS": # only update conversions for ORCHIDS
                 conversions = conversionstemp
         
-        print("TOTAL ORCHID PNL: ", records["ORCHIDSPNL"][0])
         traderData = jsonpickle.encode(records)
         return result, conversions, traderData
     
     def get_orders_and_conversions(self, state, records, product):
-        # if product == "ORCHIDS":
-        #    return self.orchids_algorithm(state, records)
+        if product == "ORCHIDS":
+           return self.orchids_algorithm(state, records)
         if product == "AMETHYSTS":
             return self.amethysts_algorithm(state, records)
         if product == "STARFRUIT":
@@ -74,6 +73,11 @@ class Trader:
         return sum(list_of_mid_prices[-num:]) / num
     
     def get_ema(self, list_of_mid_prices: list, period : int) -> float:
+        period = min(period, len(list_of_mid_prices))
+
+        if period == 0:
+            return None
+        
         list_to_series = pd.Series(list_of_mid_prices)
         return list_to_series.ewm(span=period, adjust=False).mean().iloc[-1]
 
@@ -81,7 +85,7 @@ class Trader:
         return np.std(list_of_mid_prices)
     
     def get_amount_to_buy(self, order_depth: OrderDepth, position, product: str) -> int:
-        limit: int
+        limit: int = 0
 
         best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
 
@@ -107,14 +111,16 @@ class Trader:
         
 
     def get_amount_to_sell(self, order_depth: OrderDepth, position, product: str) -> int:
-        limit: int
+        limit: int = 0
 
         best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
 
         if product == "AMETHYSTS":
-             limit = -20
+            limit = -20
         elif product == "STARFRUIT":
-             limit = -20
+            limit = -20
+        elif product == "ORCHIDS":
+            limit = -100
 
         if product in position:
             current_position = position[product]
@@ -192,61 +198,99 @@ class Trader:
 
         buy_amount = 0
         sell_amount = 0
+        conversions = 0
+
+        current_position = self.get_position(product, state)
 
         bid_price, ask_price, import_tariff, export_tariff, transport_fees = self.get_orchids(state)
                 
         # to buy from the SOUTH --> ask_price + import_tariff + export_tariff
-        south_buy_price = ask_price + import_tariff + transport_fees
+        south_buy_price = ask_price - import_tariff + transport_fees
         south_sell_price = bid_price - export_tariff - transport_fees
 
-        print("SOUTH BUY:" + str(south_buy_price))
-        print("SOUTH SELL:" + str(south_sell_price))
-        print("LOCAL BUY:", best_ask)
-        print("LOCAL SELL:", best_bid)
+        foreign_mid_price = (ask_price + bid_price) /2
+        local_mid_price = self.get_midprice(order_depth)
 
-        # maximize pnl
-        conversion1, conversion1pnl = 0, 0
-        conversion2, conversion2pnl = 0, 0
+        prev_mid_f = records["ORCHIDSFMID"].copy()
+        prev_mid_l = records["ORCHIDSLMID"].copy()
+        
+        records["ORCHIDSFMID"].append(foreign_mid_price)
+        records["ORCHIDSLMID"].append(local_mid_price)
 
-        # if the best bid in the local market is greater than the south_buy_price, sell in the local market, and buy in the foreign
-        if best_bid > south_buy_price:
-            if abs(best_bid_amount) > 10:
-                buy_amount = 10
-            else:
-                buy_amount = best_bid_amount
+        if len(records["ORCHIDSFMID"]) > 100: # only save the most recent 100 in the traderData
+            records["ORCHIDSFMID"].pop(0)
+            records["ORCHIDSLMID"].pop(0)
+
+        small_window = 6
+        long_window = 30
+
+        ema_long_f = self.get_ema(records["ORCHIDSFMID"], long_window)
+        ema_long_l = self.get_ema(records["ORCHIDSLMID"], long_window)
+        ema_short_f = self.get_ema(records["ORCHIDSFMID"], small_window)
+        ema_short_l = self.get_ema(records["ORCHIDSLMID"], small_window)
+
+        floatingpointprecision = 0.5
+        prev_ema_short_l = self.get_ema(prev_mid_l, small_window)
+        prev_ema_short_f = self.get_ema(prev_mid_f, small_window)
+
+        crossing_flag = False
+        
+        if abs(ema_long_l - ema_short_l) > floatingpointprecision:
+            crossing_flag = True
+
+        # crossing down --> short
+        if crossing_flag and prev_ema_short_l > ema_long_l and ema_short_l < ema_long_l:
+            sell_amount = self.get_amount_to_sell(order_depth, state.position, product)
             
-            print("CONVERT (BUY)", str(buy_amount) + "x", south_buy_price) # CONVERT FOREIGN
-            conversion1 = buy_amount
-            print("SELL", str(-buy_amount) + "x", best_bid) # SELL LOCAL
-            orders.append(Order(product, best_bid, buy_amount))
+            if south_sell_price > (best_bid):
+                print("CONVERTSELL!:", str(sell_amount) + "x", str(south_sell_price))
+                if current_position > 0:
+                    conversions = max(sell_amount, -abs(current_position))
+                else:
+                    conversions = sell_amount
+            else: 
+                print("SELL!:", str(sell_amount) + "x", best_bid+1)
+                orders.append(Order(product, best_bid+1, sell_amount))
 
-            price_dif = best_bid - south_buy_price
-            conversion1pnl = buy_amount * price_dif
-
-        # if south_sell_price is greater than the local best asking price, buy in the local market and sell in the foreign market
-        if south_sell_price > best_ask:
-            if abs(best_ask_amount) > 10: 
-                sell_amount = -10
-            else:
-                sell_amount = -best_ask_amount
+        # crossing up --> long
+        if crossing_flag and prev_ema_short_l < ema_long_l and ema_short_l > ema_long_l:
+            buy_amount = self.get_amount_to_buy(order_depth, state.position, product)
             
-            print("CONVERT (SELL)", str(sell_amount) + "x", south_sell_price) # SELL FOREIGN
-            conversion2 = sell_amount
-            print("BUY", str(-sell_amount) + "x", best_ask) # BUY LOCAL
-            orders.append(Order(product, best_ask, -sell_amount))
+            if south_buy_price < (best_ask):
+                print("CONVERTBUY!:", str(buy_amount) + "x", str(south_buy_price))
+                if current_position < 0:
+                    conversions = min(buy_amount, abs(current_position))
+                else:
+                    conversions = buy_amount
+            else:
+                print("BUY!:", str(buy_amount) + "x", best_ask-1)
+                orders.append(Order(product, best_ask-1, buy_amount))
 
-            price_dif = south_sell_price - best_ask
-            conversion2pnl = -sell_amount * price_dif
+        crossing_flag = False
+        if abs(ema_long_f - ema_short_f) > floatingpointprecision:
+            crossing_flag = True
+        
+        # foreign market crossing down --> short
+        if crossing_flag and prev_ema_short_f > ema_long_f and ema_short_f < ema_long_f:
+            if south_buy_price < (best_bid):
+                print("CONVERTSELL!:", str(-2) + "x", str(south_sell_price))
+                conversions = -2
+            else:
+                print("CROSSSELL!:", str(-2) + "x", best_bid+2)
+                orders.append(Order(product, best_bid+2, -2))
+        
+        # crossing up --> long
+        if crossing_flag and prev_ema_short_f < ema_long_f and ema_short_f > ema_long_f:
+            buy_amount = 2
+            
+            if south_buy_price < (best_ask-2):
+                print("CONVERTBUY!:", str(buy_amount) + "x", str(south_buy_price))
+                conversions = 2
+            else:
+                print("CROSSBUY!:", str(buy_amount) + "x", best_ask-2)
+                orders.append(Order(product, best_ask-2, buy_amount))
 
-        if conversion2pnl > conversion1pnl:
-            conversions = conversion2
-            print(f"Orchid PNL: {conversion2pnl}")
-            records["ORCHIDSPNL"][0] += conversion2pnl
-        else:
-            conversions = conversion1
-            print(f"Orchid PNL: {conversion1pnl}")
-            records["ORCHIDSPNL"][0] += conversion2pnl
-
+        print("CONVERSIONS: ", conversions)
         return orders, conversions
 
     def amethysts_algorithm(self, state: TradingState, records):
@@ -338,7 +382,7 @@ class Trader:
                 print("SELL", str(sell_amount) + "x", best_bid)
                 orders.append(Order(product, best_bid, sell_amount))
 
-            margin = 2
+            margin = 1
             fair_value = int(round(fair_value))
             buy_price = fair_value - margin
             sell_price = fair_value + margin
