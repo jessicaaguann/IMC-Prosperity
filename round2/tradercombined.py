@@ -36,8 +36,8 @@ class Trader:
         return result, conversions, traderData
     
     def get_orders_and_conversions(self, state, records, product):
-        if product == "ORCHIDS":
-            return self.orchids_algorithm(state, records)
+        # if product == "ORCHIDS":
+        #    return self.orchids_algorithm(state, records)
         if product == "AMETHYSTS":
             return self.amethysts_algorithm(state, records)
         if product == "STARFRUIT":
@@ -167,6 +167,21 @@ class Trader:
 
         return bid_price, ask_price, import_tariff, export_tariff, transport_fees
 
+    def starfruit_linreg(self, starfruit_prices):
+        if len(starfruit_prices) < 3:
+            return None
+        
+        coefficients = [0.28814739, 0.32004992, 0.39149667]
+        intercept = 1.5327896165945276
+        coefficients = np.array(coefficients)
+        last_three_prices = starfruit_prices[-3:]
+
+        last_three_prices = np.array(last_three_prices)
+        
+        result = np.dot(last_three_prices, coefficients) + intercept
+
+        return result
+    
     def orchids_algorithm(self, state: TradingState, records):
         product = "ORCHIDS"
         order_depth: OrderDepth = state.order_depths[product]
@@ -294,90 +309,50 @@ class Trader:
         product = "STARFRUIT"
         order_depth: OrderDepth = state.order_depths[product] # save the order depth object into order_depth
         orders: List[Order] = [] 
-
         best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
         best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
         buy_amount = 0
         sell_amount = 0
+        mid_price = self.get_midprice(order_depth)
+        position = self.get_position(product, state)
         
-        mid_price = self.get_midprice(order_depth=order_depth) # gives order_depth for specific product
-        records[product].append(mid_price)
+        records['STARFRUIT'].append(mid_price)
+        fair_value = self.starfruit_linreg(records['STARFRUIT'])
 
-        small_window_size = 20
-        large_window_size = 80
-        moving_average = self.get_moving_average(records[product], small_window_size)
-        ema = self.get_ema(records[product], large_window_size)
-        moving_std = self.get_std(records[product])
-        scaler = 1.31
-        upper_limit = moving_average + scaler * moving_std
-        lower_limit = moving_average - scaler * moving_std
-        slopepercent = self.get_slope_of_ma(records[product], small_window_size, 4) # percent increase relative to 0 slope
-
-        if slopepercent is None:
-            slopepercent = 0
-
-        print("Moving Average", moving_average)
-        print("EMA", ema)
-        print("Upper Bound", upper_limit)
-        print("Lower Bound", lower_limit)
-        print("Mid Price", mid_price)
-
-        if len(records[product]) > 100: # to not store that much data inside record
-            records[product].pop(0) # pop the oldest
-
-        print("Buy Order depth : " + str(len(order_depth.buy_orders)) + ", Sell order depth : " + str(len(order_depth.sell_orders)))
-
-        flag = False
-
-        if(best_ask < lower_limit): # lower band
-            buy_amount = self.get_amount_to_buy(order_depth=order_depth, position=state.position, product=product)
-
-            if buy_amount < 0:
-                buy_amount *= -1
-            
-            print("BUY:", str(buy_amount) + "x", best_ask)
-            orders.append(Order(product, best_ask, buy_amount))
-            flag = True
+        print(f"Fair Value: {fair_value}")
+        if len(records['STARFRUIT']) > 5:
+            records['STARFRUIT'].pop(0)
         
-        if(best_bid > upper_limit): # upper band
-            sell_amount = self.get_amount_to_sell(order_depth=order_depth, position=state.position, product=product)
+        if fair_value is None:
+            pass
+        else:
+            if best_ask < fair_value: # if the best ask price is less than the fair_value
+                buy_amount = abs(self.get_amount_to_buy(order_depth, state.position, product))
 
-            if sell_amount > 0:
-                sell_amount *= -1
-            
-            print("SELL:", str(sell_amount) + "x", best_bid)
-            orders.append(Order(product, best_bid, sell_amount))
-            flag = True
+                print("BUY", str(buy_amount) + "x", best_ask)
+                orders.append(Order(product, best_ask, buy_amount))
 
-        # MARKET MAKING SKULL EMOJI
-        if flag == False:
+            if best_bid > fair_value: # if the best bid price is greater than the fair_value price
+                sell_amount = -abs(self.get_amount_to_sell(order_depth, state.position, product))
 
-            print("Slope percent", slopepercent)
-            fv_adjustment = slopepercent * 3.9
-            margin = 3
+                print("SELL", str(sell_amount) + "x", best_bid)
+                orders.append(Order(product, best_bid, sell_amount))
 
-            if len(records[product]) > 100: # to not store that much data inside record
-                records[product].pop(0) # pop the oldest
+            margin = 2
+            fair_value = int(round(fair_value))
+            buy_price = fair_value - margin
+            sell_price = fair_value + margin
 
-            # Calculating how much to buy
-            if product in state.position:
-                position = state.position["STARFRUIT"] + buy_amount + sell_amount
-            else:
-                position = 0 + buy_amount + sell_amount
-            
-            pos_limit = 17
-            buy_dif = int(round((pos_limit-position)/ (1 + abs(slopepercent) * 4.5)))
-            buy_price = int(round(moving_average + fv_adjustment)) - margin
+            pos_limit = 20 - buy_amount
+            buy_dif = pos_limit-position
 
             print("BUY", str(buy_dif) + "x", buy_price)
             orders.append(Order(product, buy_price, buy_dif))
 
-            neg_limit = -17
-            sell_dif = int(round((neg_limit-position)/ (1 + abs(slopepercent) * 4.5)))
-
-            sell_price = int(round(moving_average  + fv_adjustment)) + margin
+            neg_limit = -20 - sell_amount
+            sell_dif = neg_limit-position
 
             print("SELL", str(sell_dif) + "x", sell_price)
             orders.append(Order(product, sell_price, sell_dif))
-        
+
         return orders, 0
