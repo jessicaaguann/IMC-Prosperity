@@ -95,6 +95,7 @@ class Trader:
         else:
             print(f"Sell Amount: {current_position-limit}")
             return current_position-limit
+    
     def get_slope_of_ma(self, list, window_size, num_in_avg):
         if len(list) < window_size + num_in_avg:
             return None
@@ -129,7 +130,9 @@ class Trader:
 
         last_three_prices = np.array(last_three_prices)
         
-        result = np.dot(last_three_prices, coefficients)
+        result = np.dot(last_three_prices, coefficients) + intercept
+
+        return result
         
 
     def get_orchids(self, state: TradingState):
@@ -149,10 +152,13 @@ class Trader:
         best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
         buy_amount = 0
         sell_amount = 0
-        mid_value = (best_ask + best_bid) / 2
+        mid_price = self.get_midprice(order_depth)
+        position = self.get_position(product, state)
         
-        records['STARFRUIT'].append(mid_value)
+        records['STARFRUIT'].append(mid_price)
         fair_value = self.starfruit_linreg(records['STARFRUIT'])
+
+        print(f"Fair Value: {fair_value}")
         if len(records['STARFRUIT']) > 5:
             records['STARFRUIT'].pop(0)
         
@@ -160,19 +166,35 @@ class Trader:
             pass
         else:
             if best_ask < fair_value: # if the best ask price is less than the fair_value
-                buy_amount = self.get_amount_to_buy(order_depth, state.position, product)
+                buy_amount = abs(self.get_amount_to_buy(order_depth, state.position, product))
 
                 print("BUY", str(buy_amount) + "x", best_ask)
                 orders.append(Order(product, best_ask, buy_amount))
 
             if best_bid > fair_value: # if the best bid price is greater than the fair_value price
-                sell_amount = self.get_amount_to_sell(order_depth, state.position, product)
+                sell_amount = -abs(self.get_amount_to_sell(order_depth, state.position, product))
 
                 print("SELL", str(sell_amount) + "x", best_bid)
                 orders.append(Order(product, best_bid, sell_amount))
 
-        margin = 3
-        buy_amount = 20 - buy_amount
-        sell_amount = -20 - sell_amount
+            margin = 3
+            fair_value = int(round(fair_value))
+            buy_price = fair_value - margin
+            sell_price = fair_value + margin
+
+            pos_limit = 20 - buy_amount
+            buy_dif = pos_limit-position
+
+            print("POSITION", position)
+            print("BUY AMOUNT:", buy_dif)
+            print("BUY", str(buy_dif) + "x", buy_price)
+            orders.append(Order(product, buy_price, buy_dif))
+
+            neg_limit = -20 - sell_amount
+            sell_dif = neg_limit-position
+
+            print("SELL AMOUNT:", sell_dif)
+            print("SELL", str(sell_dif) + "x", sell_price)
+            orders.append(Order(product, sell_price, sell_dif))
 
         return orders, 0
