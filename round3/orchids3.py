@@ -15,7 +15,7 @@ class Trader:
             # second list is to save mid_price for STARFRUITS 
             # ORCHIDSLMID = local mid price for orchids
             # ORCHIDSFMID = foreign/south mid price for orchids
-            records = {"AMETHYSTS": [], "STARFRUIT": [], "ORCHIDSFBID": [], "ORCHIDSFASK": []}
+            records = {"AMETHYSTS": [], "STARFRUIT": []}
         else:
             records = jsonpickle.decode(state.traderData)
         
@@ -216,58 +216,17 @@ class Trader:
         south_buy_price = ask_price + import_tariff + transport_fees
         south_sell_price = bid_price - export_tariff - transport_fees
 
-        print("SOUTH BUY", south_buy_price)
-        print("SOUTH SELL", south_sell_price)
-
-        records["ORCHIDSFBID"].append(bid_price)
-        records["ORCHIDSFASK"].append(ask_price)
-
-        if len(records["ORCHIDSFBID"]) > 110: # only save the most recent 100 in the traderData
-            records["ORCHIDSFBID"].pop(0)
-            records["ORCHIDSFASK"].pop(0)
-
+        # if high tariffs, do sf alg on orchids
         if south_sell_price > best_ask:
             buy_amount = self.get_amount_to_buy(order_depth, state.position, product)
             print(f"BUY LOCAL {buy_amount}x{best_ask}")
             orders.append(Order(product, best_ask, buy_amount))
             conversions = -buy_amount
-            flag = True
 
         if south_buy_price < best_bid:
             sell_amount = self.get_amount_to_sell(order_depth, state.position, product)
             print(f"SELL LOCAL {sell_amount}x{best_bid}")
             orders.append(Order(product, best_bid, sell_amount))
             conversions = -sell_amount
-            flag = True
-
-        """
-        current_position = self.get_position(product, state)
-        
-        long_window = 40
-        margin = 6
-        
-        foreign_bid_ema = self.get_ema(records["ORCHIDSFBID"], long_window)
-        foreign_ask_ema = self.get_ema(records['ORCHIDSFASK'], long_window)
-        future_foreign_buy_price = foreign_ask_ema + import_tariff + transport_fees + margin
-        future_foreign_sell_price = foreign_bid_ema - export_tariff - transport_fees - margin
-
-        # if tomorrow i can sell in the foreign market at a higher price than i can buy in the local market today
-        # i will buy in the local market and send a conversion request to short
-        if not flag and future_foreign_sell_price > best_ask:
-            print("PRED SOUTH SELL", future_foreign_sell_price)
-            buy_amount = self.get_amount_to_buy(order_depth, state.position, product)
-            print(f"BUY LOCAL {buy_amount}x{best_ask}")
-            orders.append(Order(product, best_ask, buy_amount))
-            conversions = -buy_amount
-
-        # if tomorrow i can buy in the foreign market at a lower price than i can sell today
-        # i will sell in the local market today and send a conversion request to long
-        if not flag and future_foreign_buy_price < best_bid:
-            print("PRED SOUTH BUY", future_foreign_buy_price)
-            sell_amount = self.get_amount_to_sell(order_depth, state.position, product)
-            print(f"SELL LOCAL {sell_amount}x{best_bid}")
-            orders.append(Order(product, best_bid, sell_amount))
-            conversions = -sell_amount"""
-
-        
+    
         return orders, conversions
