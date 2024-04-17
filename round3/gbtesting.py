@@ -46,16 +46,21 @@ def get_signals(df_merged, a, b):
     signals_series[buy_condition] = 'B'
     signals_series[neither_condition] = 'N'
 
+    signal_counts = signals_series.value_counts()
+    """print("Number of Sell signals:", signal_counts.get('S', 0))
+    print("Number of Buy signals:", signal_counts.get('B', 0))
+    print("Number of Neither signals:", signal_counts.get('N', 0))"""
+
     return signals_series
 
-
-# define limit for buying and selling gifts basket
-limit = 60
 
 # input a b and c, calculate PNL, optimize PNL
 def calculate_PNL(df_merged, df, a, b, c):
     signals = get_signals(df_merged, a, b)
     df_gb = df.copy()
+
+    # define limit for buying and selling gifts basket
+    limit = 60
 
     df_gb['signal'] = signals
     df_gb['PNL'] = 0.0
@@ -66,27 +71,23 @@ def calculate_PNL(df_merged, df, a, b, c):
     df_gb['sell_price'] = df_gb['mid_price'] - c
 
     current_pos = 0
-    min_pos_count = 0
-    max_pos_count = 0
 
     for index, row in df_gb.iterrows():
         if row['signal'] == 'B':
             # Buy logic
             # if specific row has a buy_condition and buy_price is greater than ask_price_1, buy at ask_price_1 * ask_volume_1 * -1, put this product in PNL
             if row['buy_price'] > row['ask_price_1']:
-
+                
                 if current_pos <= limit:
                     buy_volume = row['ask_volume_1'] * -1
 
                     if (-buy_volume + current_pos) > limit:
                         buy_volume = -(limit - current_pos)
-
+                        
                     pnl = row['ask_price_1'] * buy_volume
                     df_gb.at[index, 'PNL'] = pnl
                     # df_gb.at[index, 'Losses'] = pnl
                     current_pos -= buy_volume
-                else:
-                    max_pos_count += 1
 
         elif row['signal'] == 'S':
             # Sell logic
@@ -96,17 +97,15 @@ def calculate_PNL(df_merged, df, a, b, c):
                     sell_volume = row['bid_volume_1']
 
                     if (current_pos - sell_volume) < -limit:
-                        sell_volume = abs(limit - current_pos)
+                        sell_volume = abs(-limit - current_pos)
 
                     pnl = row['bid_price_1'] * sell_volume
                     df_gb.at[index, 'PNL'] = pnl
                     # df_gb.at[index, 'Gains'] = pnl
                     current_pos -= sell_volume
-                else:
-                    min_pos_count += 1
-
 
     total_pnl = df_gb['PNL'].sum()
+
     # total_gains = df_gb['Gains'].sum()
     # total_losses = df_gb['Losses'].sum()
     
@@ -116,32 +115,31 @@ def calculate_PNL(df_merged, df, a, b, c):
     print("Total Losses:", total_losses)
     print("Min position count", min_pos_count)
     print("Max position count", max_pos_count)"""
-    
+
+    # liquidate position
+    if current_pos > 0:
+        total_pnl += current_pos * df_gb["bid_price_1"].iloc[-1]
+    if current_pos < 0:
+        total_pnl += current_pos * df_gb["ask_price_1"].iloc[-1]
+
     return total_pnl
 
 
 # init conditions
  
-a = 480
+a = 470
 b = 310
-c = 200
+c = 60
 
 # brute force find the max total_pnl
 max_a, max_b, max_c = 0, 0, 0
 max_pnl = 0
 
-# Define initial conditions
-a = 470
-b = 315
-c = 60
-
-
-print(calculate_PNL(df_merged, df_gb, 430, 350, 3))
+print(calculate_PNL(df_merged, df_gb, a, b, c))
 
 while a >= 300 and a > b: 
     print("A", a)
     while b <= 450 and b < a:
-        print("B", b)
         c = 60
         while c >= 2:
             cur_pnl = calculate_PNL(df_merged, df_gb, a, b, c)
@@ -154,7 +152,7 @@ while a >= 300 and a > b:
             c -= 1
         b += 1
     a -= 1
-    b = 315
+    b = 320
 
 print("Max PNL", max_pnl)
 print(f"A: {max_a}, B: {max_b}, C: {max_c}")
