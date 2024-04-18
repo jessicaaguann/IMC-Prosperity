@@ -203,7 +203,23 @@ class Trader:
             print(f"SELL LOCAL {sell_amount}x{best_bid}")
             orders.append(Order(product, best_bid, sell_amount))
             conversions = -sell_amount
-    
+        
+        # if the conversion buy price is slightly greater than what you can sell it at, buy now and try selling a bit higher
+        elif south_buy_price - 0.5 < best_bid:
+            sell_amount = self.get_amount_to_sell(order_depth, state.position, product)
+            print(f"SELL LOCAL {sell_amount}x{best_bid}")
+            orders.append(Order(product, best_bid + 1, sell_amount))
+            conversions = -sell_amount
+        elif south_buy_price - 2.5 < best_bid:
+            sell_amount = self.get_amount_to_sell(order_depth, state.position, product)
+            print(f"SELL LOCAL {sell_amount}x{best_bid}")
+            orders.append(Order(product, best_bid + 3, sell_amount))
+            conversions = -sell_amount
+        elif south_buy_price - 3.5 < best_bid:
+            sell_amount = self.get_amount_to_sell(order_depth, state.position, product)
+            print(f"SELL LOCAL {sell_amount}x{best_bid}")
+            orders.append(Order(product, best_bid + 4, sell_amount))
+            conversions = -sell_amount
         return orders, conversions
 
 
