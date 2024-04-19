@@ -367,8 +367,8 @@ class Trader:
         dif = mid_price - total_components
 
         # TODO: FIND A, B, C
-        a = 435 # positive difference limit
-        b = 404 # negative difference limit
+        a = 433 # positive difference limit
+        b = 350 # negative difference limit
         c = 7 # margin to sell/buy
 
         sell_signal = False
