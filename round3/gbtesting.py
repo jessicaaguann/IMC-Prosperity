@@ -3,7 +3,11 @@ import numpy as np
 from scipy.optimize import minimize
 
 # Read the CSV file into a DataFrame
-df = pd.read_csv('./IMC testing/round3/log5.csv', delimiter=';')
+# df = pd.read_csv('./IMC testing/round3/log5.csv', delimiter=';')
+df1 = pd.read_csv('./IMC testing/round3/round-3-island-data-bottle/prices_round_3_day_0.csv', delimiter = ';')
+df2 = pd.read_csv('./IMC testing/round3/round-3-island-data-bottle/prices_round_3_day_1.csv', delimiter = ';')
+df3 = pd.read_csv('./IMC testing/round3/round-3-island-data-bottle/prices_round_3_day_2.csv', delimiter = ';')
+df = pd.concat([df1, df2, df3], ignore_index=True)
 
 # only keep rows with products as gift basket, chocolate, roses, strawberries
 df = df[df['product'].isin(['GIFT_BASKET', 'CHOCOLATE', 'ROSES', 'STRAWBERRIES'])]
@@ -71,6 +75,7 @@ def calculate_PNL(df_merged, df, a, b, c):
     df_gb['sell_price'] = df_gb['mid_price'] - c
 
     current_pos = 0
+    ap_2, bp_2 = 0, 0
 
     for index, row in df_gb.iterrows():
         if row['signal'] == 'B':
@@ -83,6 +88,8 @@ def calculate_PNL(df_merged, df, a, b, c):
 
                     if (-buy_volume + current_pos) > limit:
                         buy_volume = -(limit - current_pos)
+                        if buy_volume > 0:
+                            buy_volume = 0
                         
                     pnl = row['ask_price_1'] * buy_volume
                     df_gb.at[index, 'PNL'] = pnl
@@ -127,32 +134,35 @@ def calculate_PNL(df_merged, df, a, b, c):
 
 # init conditions
  
-a = 470
-b = 310
-c = 60
-
-# brute force find the max total_pnl
-max_a, max_b, max_c = 0, 0, 0
-max_pnl = 0
+a = 435
+b = 404
+c = 7
 
 print(calculate_PNL(df_merged, df_gb, a, b, c))
 
-while a >= 300 and a > b: 
-    print("A", a)
-    while b <= 450 and b < a:
-        c = 60
-        while c >= 2:
-            cur_pnl = calculate_PNL(df_merged, df_gb, a, b, c)
-            if cur_pnl > max_pnl:
-                print("Updated PNL", cur_pnl, f"A: {a}, B: {b}, C: {c}")
-                max_pnl = cur_pnl
-                max_a = a
-                max_b = b
-                max_c = c
-            c -= 1
-        b += 1
-    a -= 1
-    b = 320
+def brute_force(a, b, c):
+    # brute force find the max total_pnl
+    max_a, max_b, max_c = 0, 0, 0
+    max_pnl = 0
 
-print("Max PNL", max_pnl)
-print(f"A: {max_a}, B: {max_b}, C: {max_c}")
+    print(calculate_PNL(df_merged, df_gb, a, b, c))
+
+    while a >= 300 and a > b: 
+        print("A", a)
+        while b <= 440 and b < a:
+            c = 5
+            while c <= 20:
+                cur_pnl = calculate_PNL(df_merged, df_gb, a, b, c)
+                if cur_pnl > max_pnl:
+                    print("Updated PNL", cur_pnl, f"A: {a}, B: {b}, C: {c}")
+                    max_pnl = cur_pnl
+                    max_a = a
+                    max_b = b
+                    max_c = c
+                c += 1
+            b += 1
+        a -= 1
+        b = 330
+
+    print("Max PNL", max_pnl)
+    print(f"A: {max_a}, B: {max_b}, C: {max_c}")
